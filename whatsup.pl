@@ -11,6 +11,7 @@
 # 2012-02-15, v0.6 jw, consulting /proc/pid/cmdline, as /stat and /comm are 15 bytes only.
 #                      handle /proc/$pid/fd/$fd -> ... (deleted)
 # 2012-02-16,    whatsup_disk started, unfinished.
+# 2012-09-24, v0.7 jw, improved /proc/pid/cmdline to /comm fallback
 #
 #
 ## FIXME: We should we have an option to include child processes too...
@@ -34,7 +35,7 @@ use Getopt::Long qw(:config no_ignore_case);
 use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 
-my $version = '0.6';
+my $version = '0.7';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -327,12 +328,15 @@ sub whatsup_pid
       if (open IN, "/proc/$pid/cmdline") 
         {
           # proc/pid/comm not in SLE11SP1
-          $cmd = <IN>; 
+          $cmd = <IN> || ''; 	# kjournald has no cmdline
           chomp $cmd;
 	  $cmd =~ s{\0.*$}{};
 	  close IN;
 	}
-      elsif (open IN, "/proc/$pid/comm")
+    }
+  unless ($cmd)
+    {
+      if (open IN, "/proc/$pid/comm")
         {
           # /proc/pid/comm is also truncated to 15 bytes, grrr..
           $cmd = <IN>; 
