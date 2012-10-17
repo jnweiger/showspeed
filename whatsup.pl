@@ -12,6 +12,7 @@
 #                      handle /proc/$pid/fd/$fd -> ... (deleted)
 # 2012-02-16,    whatsup_disk started, unfinished.
 # 2012-09-24, v0.7 jw, improved /proc/pid/cmdline to /comm fallback
+# 2012-10-17, v0.8 jw, printing position if perc_p is 100%
 #
 #
 ## FIXME: We should we have an option to include child processes too...
@@ -35,7 +36,7 @@ use Getopt::Long qw(:config no_ignore_case);
 use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 
-my $version = '0.7';
+my $version = '0.8';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -415,7 +416,14 @@ sub whatsup_pid
 	      $fds .= 'w' if $t->{w};
 
 	      my $perc_p = '';
-	      $perc_p = sprintf " (%d%%)", $t->{perc}+.5 if $t->{perc} < 100.0;
+	      if ($t->{perc} < 100.0)
+	        {
+	          $perc_p = sprintf " (%d%%)", $t->{perc}+.5;
+		}
+	      else
+	        {
+		  $perc_p = " ($t->{pos})";
+		}
 
 	      ## raw data for eta calculation:
 	      my $f = $t->{name};
