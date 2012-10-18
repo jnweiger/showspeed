@@ -418,7 +418,7 @@ sub whatsup_pid
 	      my $perc_p = '';
 	      if ($t->{perc} < 100.0)
 	        {
-	          $perc_p = sprintf " (%d%%)", $t->{perc}+.5;
+	          $perc_p = sprintf " (%d%%k)", ($t->{perc}+.5)/1024;
 		}
 	      else
 	        {
