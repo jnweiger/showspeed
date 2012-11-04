@@ -13,6 +13,7 @@
 # 2012-02-16,    whatsup_disk started, unfinished.
 # 2012-09-24, v0.7 jw, improved /proc/pid/cmdline to /comm fallback
 # 2012-10-17, v0.8 jw, printing position if perc_p is 100%
+# 2012-11-04, v0.9 jw, added filename support. Only one proc currently.
 #
 #
 ## FIXME: We should we have an option to include child processes too...
@@ -35,8 +36,9 @@ use Data::Dumper;
 use Getopt::Long qw(:config no_ignore_case);
 use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
+use English;			# allow $EUID instead of $>
 
-my $version = '0.8';
+my $version = '0.9';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -283,7 +285,46 @@ if ($arg =~ m{/dev/disk})
       }
   }
 
-die "implemented: type procname, pid, --net. Nothing else. sorry\n";
+if ($arg =~ m{/})
+  {
+    print STDERR "$arg looks like a file name.\n" if $verbose > 1;
+    $procs = lsof_pid($arg);
+
+    my @pids = keys %$procs;
+    if (scalar(@pids) == 0)
+      {
+        if ($EUID)
+	  {
+            print STDERR "$arg is unused.\n";
+	  }
+	else
+	  {
+            print STDERR "$arg appears unused. Try again as root?\n";
+	  }
+	exit 0;
+      }
+    if (scalar(@pids) > 1)
+      {
+        print STDERR "$arg is used by multiple processes. Choose one pid:\n";
+	for my $pid (sort { $a <=> $b } @pids)
+	  {
+	    my $p = $procs->{$pid};
+	    printf STDERR "%d: fd=", $pid;
+	    my $comma = '';
+	    for my $fd (sort { $a <=> $b } keys %{$p->{fd}})
+	      {
+	        printf STDERR "%s%d%s", $comma, $fd, $p->{fd}{$fd}{a};
+	        my $comma = ',';
+	      }
+	    printf STDERR " %s\n", proc_pid_cmdline($pid);
+	  }
+	exit 0;
+      }
+    whatsup_pid($pids[0]);
+    exit 0;
+  }
+
+die "implemented: type procname, pid, filename, --net. Nothing else. Sorry.\n";
 
 exit 0;
 ############################################################
@@ -320,10 +361,10 @@ sub whatsup_net
   return $new;
 }
 
-
-sub whatsup_pid
+sub proc_pid_cmdline
 {
-  my ($pid, $cmd) = @_;
+  my ($pid) = @_;
+  my $cmd;
   unless ($cmd)
     {
       if (open IN, "/proc/$pid/cmdline") 
@@ -345,6 +386,16 @@ sub whatsup_pid
           close IN;
 	}
     }
+
+  $cmd = "(pid=$pid)" unless $cmd;
+  return $cmd;
+}
+
+sub whatsup_pid
+{
+  my ($pid, $cmd) = @_;
+  $cmd = proc_pid_cmdline($pid) unless $cmd;
+
   print STDERR "whatsup_pid($pid, '$cmd')\n" if $verbose > 1;
   my $hist;
   my $old;
@@ -418,11 +469,12 @@ sub whatsup_pid
 	      my $perc_p = '';
 	      if ($t->{perc} < 100.0)
 	        {
-	          $perc_p = sprintf " (%d%%k)", ($t->{perc}+.5)/1024;
+	          $perc_p = sprintf " (%d%%)", ($t->{perc}+.5);
 		}
 	      else
 	        {
-		  $perc_p = " ($t->{pos})";
+		  # offset
+		  $perc_p = " (".fmt_speed($t->{pos}).")";
 		}
 
 	      ## raw data for eta calculation:
@@ -450,7 +502,7 @@ sub whatsup_pid
 	    {
 	      my ($state,$syscall) = run_status($pid);
 	      my $where = ''; $where = " in $syscall" if length($syscall||'') > 1;
-	      print STDERR "pid$pid idle: $state$where\n";
+	      print STDERR "p/$pid idle: $state$where\n";
 	    }
 
 	}
@@ -461,6 +513,8 @@ sub whatsup_pid
 
 sub fmt_speed
 {
+  # Second parameter causes a '/s' suffix.
+  # Omit the second paramater to format a kbyte/mbyte amount.
   my ($bytes,$secs) = @_;
   $bytes||=0;
   my $persec = '/s';
@@ -525,7 +579,11 @@ sub fdinfo
 {
   my ($pid) = @_;
 
-  opendir DIR, "/proc/$pid/fd" or return undef;
+  unless (opendir DIR, "/proc/$pid/fd")
+    {
+      warn "/proc/$pid/fd: $!, retry as root?\n" if $!+0 == 13;	# EPERM
+      return undef;
+    }
   my %fd = map { $_ => {} } grep { /^\d+$/ } readdir DIR;
   closedir DIR;
 
@@ -675,3 +733,120 @@ sub _fuser_offset
     }
 }
 
+## The following code is adopted from ioana-0.41, jw@suse.de, 2012-11-04
+
+## returns device/inode in string representation.
+sub inode_pair
+{
+  my ($h, $fail) = @_;
+  return $h->{I} if defined $h->{I};
+
+  if ($fail)
+    {
+      return undef unless defined $h->{D} and defined $h->{i};
+    }
+
+  my $d = $h->{D}||0;
+  $d = hex $d if $d =~ m{^0x}i;
+  $d .= "/" . ($h->{i}||0);
+  return $h->{I} = $d;  
+}
+
+
+sub lsof_pid
+{
+  my ($fname) = @_;
+
+
+  my %procs = ( 0 =>  {} );	# results go here
+  my $p = $procs{0};
+  
+  my $f = '0';		# NUL separated output.
+  $f .= 'a';		# r=read, w=write, u=update
+  $f .= 'd';		# device character code, (does not work?)
+  $f .= 'D';		# filesystem-devnode in hex
+  $f .= 'r';		# device major/minor in hex
+  $f .= 'i';		# inode number
+  $f .= 'f';		# file descriptor
+  $f .= 'o';		# file offset (does not work?)
+  $f .= 's';		# file size
+  $f .= 't';		# file type: REG, CHR, DIR
+  $f .= 'T';		# TCP/IP info
+  $f .= 'S';		# stream module and device names
+  $f .= 'n';		# name, comment or internet address, 
+                        # (using \r\n but not \\, beware!)
+
+  my $cmd = "env LC_ALL=C /usr/bin/lsof -F $f";
+
+  my $avoid_block = 0;	# must not be set, or lsof bails out with 
+                        # lsof: status error on $fname: Resource temporarily unavailable
+  # -b is essential to avoid blocking in stat() calls on dead filesystems.
+  # but it makes certain fields not available, sigh.
+  # types CHR and DIR may show up as 'unknown', and
+  # n-names may look like '/usr/bin/perl (stat: Resource temporarily unavailable)'
+  # or '/suse/jw/src/perl/ioana-0.08 (wotan:/real-home/jw)'
+  # some of the silly texts behind the names can be prevented with -w, but not all.
+  # sigh.
+  $cmd .= " -w -b" if $avoid_block;
+
+  $cmd .= " -- '$fname'";
+
+  open IN, "$cmd 2>/dev/null|" or die "failed to run $cmd: $!\n";
+  while (defined (my $line = <IN>))
+    {
+      my %h = $line =~ m{(\w)([^\0]*)\0}g;
+
+      if (defined($h{n}) and $h{n} =~ m{^(.*?)\s+\((\S+:.*?)\)$})
+        {
+	  ## this did not happen on sles9. it happens on code10.
+	  # fmema tREGD0x307i28484n/usr/bin/perl (stat: Resource temporarily unavailable)
+	  # fmema tREGD0x0i0n[heap] (stat: Resource temporarily unavailable)
+	  # fmema tREGD0x307i10926n/lib64/ld-2.3.91.so (stat: Resource temporarily unavailable)
+	  # or:
+	  # fmema tREGD0x0i0n[heap] (stat: No such file or directory)
+	  #
+	  # lsof appears to be immune to locale, but we still force LC_ALL=C make sure
+	  # future releases still talk something we can parse.
+
+	  $h{n} = $1;
+	  my $rest = $2;
+	  if ($verbose > 1)
+	    {
+	      warn "lsof: message '$rest' stripped from path name ($h{n})\n" unless 
+		    $h{n} eq '[heap]' or 
+		    $rest =~ m{^stat: Resource temporarily unavailable$};
+	    }
+	}
+
+      if (defined $h{p})
+        {
+	  $cur_pid = $h{p};
+	  $procs{$cur_pid} = {} unless defined $procs{$cur_pid};
+	  $p = $procs{$cur_pid};
+	}
+      next unless defined $h{f};	# ignore p line
+
+      if ($h{f} =~ m{^(\d+)$})
+        {
+          $p->{fd}{$1} = \%h;
+	}
+      elsif ($h{f} =~ m{^(txt|rtd|cwd)$})
+        {
+	  $p->{$1} = \%h;
+	}
+      elsif ($h{f} eq 'mem')
+        {
+	  $p->{mmap}{inode_pair(\%h,1)} = \%h;
+	}
+      else
+        {
+	  die Dumper "unknown f:", \%h;
+	}
+    }
+
+  close IN;
+
+  die "lsof returned data without previous p line" if scalar keys %{$procs{0}};
+  delete $procs{0};
+  return \%procs;
+}
