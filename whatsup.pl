@@ -293,7 +293,7 @@ if ($arg =~ m{/})
     my @pids = keys %$procs;
     if (scalar(@pids) == 0)
       {
-        if ($EUID)
+        if ($EUID == 0 or !-e $arg)
 	  {
             print STDERR "$arg is unused.\n";
 	  }
