@@ -14,6 +14,7 @@
 # 2012-09-24, v0.7 jw, improved /proc/pid/cmdline to /comm fallback
 # 2012-10-17, v0.8 jw, printing position if perc_p is 100%
 # 2012-11-04, v0.9 jw, added filename support. Only one proc currently.
+# 2012-11-20, V0.10 jw, added vmsize printing when idle.
 #
 #
 ## FIXME: We should we have an option to include child processes too...
@@ -38,7 +39,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.9';
+my $version = '0.10';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -157,7 +158,7 @@ if ($arg =~ m{^\d+$})
 
 if ($arg =~ m/^[+\.\w_-]+$/)
   {
-    print STDERR "$arg looks like a process name.\n" if $verbose;
+    print STDERR "$arg looks like a process name." if $verbose; # CONT...
 
     my @eaccess = ();
     opendir DIR, "/proc" or die "opendir /proc failed: $!\n";
@@ -213,6 +214,7 @@ if ($arg =~ m/^[+\.\w_-]+$/)
     @sorted = grep { ($p{$_}{sort}||0) == ($p{$pid}{sort}||0) } @sorted;
     if (scalar @sorted > 1)
       {
+        print STDERR "\n" if $verbose;	# ... CONT.
         warn "multiple processes matching equally good:\n";
 	for my $p (@sorted)
 	  {
@@ -220,6 +222,7 @@ if ($arg =~ m/^[+\.\w_-]+$/)
 	  }
 	exit 1;
       }
+    print STDERR " pid=$pid.\n" if $verbose; # ... CONT.
     whatsup_pid($pid, $p{$pid}{argv0}||$p{$pid}{cmd});
     exit 0;
   }
@@ -500,11 +503,18 @@ sub whatsup_pid
 	    }
 	  if (!$printed)
 	    {
-	      my ($state,$syscall) = run_status($pid);
+	      my ($state,$syscall,$vmsize) = run_status($pid);
 	      my $where = ''; $where = " in $syscall" if length($syscall||'') > 1;
-	      print STDERR "p/$pid idle: $state$where\n";
+	      print STDERR "p/$pid idle: $state$where vm:".fmt_speed($vmsize);
+	      $new->{vmsize} = $vmsize;
+	      $new->{vmsize_ts} = $new->{ts};
+	      if ($old->{vmsize} and $new->{vmsize} > $old->{vmsize})
+	        {
+		  print STDERR " +".fmt_speed($new->{vmsize}-$old->{vmsize},
+		                              $new->{vmsize_ts}-$old->{vmsize_ts});
+		}
+	      print STDERR "\n";
 	    }
-
 	}
       select(undef, undef, undef, $int_sec);
       $old = $new;
@@ -536,17 +546,33 @@ sub fmt_speed
 sub run_status
 {
   my ($pid) = @_;
-  my ($st,$sc) = ('-','-');
+  my ($st,$sc,$sz) = ('-','-','-');
 
   if (open IN, "<", "/proc/$pid/status")
     {
-      <IN>;	# second line is: State:	S (sleeping)
-      $st = <IN>; chomp $st;
+      while (defined (my $line = <IN>))
+        {
+	  chomp $line;
+	  if ($line =~ m{^State:\s+(\w+)\s+\((.*?)\)})
+	    {
+              ## second line is: 
+	      # State:	S (sleeping)
+              $st = "$1=$2" 
+	    }
+	  elsif ($line =~ m{^VmSize:\s+(\d+)\s*(\w+)})
+	    {
+	      # VmSize:	  448564 kB
+	      $sz = $1;
+	      my $unit = $2;
+	      $sz *= 1024 if lc $unit eq 'kb';
+	      $sz *= 1024*1024 if lc $unit eq 'mb';
+	      last;
+	    }
+	}
       close IN;
-      $st = "$1=$2" if $st =~ m{^State:\s(\w+)\s+\((.*?)\)};
     }
 
-  return $st,$sc if $st =~ m{^R}; # avoid an oops. bnc#734751
+  return $st,$sc,$sz if $st =~ m{^R}; # avoid an oops. bnc#734751
 
   if (open IN, "<", "/proc/$pid/stack")
     {
@@ -571,7 +597,7 @@ sub run_status
       # warn Dumper \@stack;
     }
 
-  return $st, $sc;
+  return $st, $sc, $sz;
 }
 
 
