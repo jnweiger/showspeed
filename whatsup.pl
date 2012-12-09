@@ -48,6 +48,7 @@ my $pipe;
 my $out_style;
 my $opt_read = 1;
 my $opt_write = 1;
+my $opt_pid = undef;
 
 my $help = 0;
 
@@ -59,7 +60,8 @@ GetOptions(
 
 	"intervall|i=f"	=> \$int_sec, 
 	"top|t=i"	=> \$top_nnn,
-	"pipe|p=s" 	=> \$pipe,
+	"pid|p=i" 	=> \$opt_pid,
+	"pipe=s" 	=> \$pipe,
 	"out|o=s"  	=> \$out_style,
 	"read|r"	=> sub { $opt_write = 0; },
 	"write|w"	=> sub { $opt_read = 0; },
@@ -73,7 +75,7 @@ my $histlen = 60  / $int_sec;
 die "--pipe not implemented. Always stderr.\n" if defined $pipe;
 die "--out not implemented. Always plain.\n" if defined $out_style;
 my $arg = shift;
-$help++ if !$help and !length ($arg||'');
+$help++ if !$help and !$opt_pid and !length ($arg||'');
 my $usage_text = $help = ".\n" if $help > 0;
 $usage_text ||= q{, which can 
 be one of the following types:
@@ -109,7 +111,7 @@ whatsup V$version Usage:
 
 $0 [options] [.]/FILE
 $0 [options] PROC_NAME
-$0 [options] PID
+$0 [options] [-p] PID
 $0 [options] /dev/[NET]
 $0 [options] --net
 $0 [options] --disk	(not impl.)
@@ -139,6 +141,10 @@ Valid options are:
       With a comand name, the leading pipe character is optional.
       Default is '&2', which means STDERR.
 
+ --pid PID
+      Look into the process specified by PID. 
+      Default: guess what to do, by matching the type of the parameter.
+
  --read
       restrict to read activity. Default: read and write
 
@@ -151,10 +157,17 @@ Valid options are:
 Whatsup shows bandwidth statistics for one object}.$usage_text
 ) if $help;
 
-if ($arg =~ m{^\d+$})
+if ($opt_pid || $arg =~ m{^\d+$})
   {
-    whatsup_pid($arg);
+    whatsup_pid($opt_pid || $arg);
     exit 0;
+  }
+
+if ($opt_pid)
+  {
+    warn "$arg does not match {^\\d+\$}, -p ignored.\n";
+    $arg = $opt_pid;
+    sleep 1;
   }
 
 if ($arg =~ m/^[+\.\w_-]+$/)
