@@ -3,18 +3,19 @@
 # 2011-2012 (C) jw@suse.de
 # Distribute under GPL-2.0 or ask
 #
-# 2011-12-02, v0.1 jw
-# 2011-12-03, v0.2 jw, draft version of whatsup_pid() done.
-# 2011-12-04, v0.3 jw, sub second intervall, sub run_status() added.
-# 2011-12-15, v0.4 jw, eta added. --net added.
-# 2011-12-18, v0.5 jw, rw letters added to fd... reporting.
-# 2012-02-15, v0.6 jw, consulting /proc/pid/cmdline, as /stat and /comm are 15 bytes only.
-#                      handle /proc/$pid/fd/$fd -> ... (deleted)
-# 2012-02-16,    whatsup_disk started, unfinished.
-# 2012-09-24, v0.7 jw, improved /proc/pid/cmdline to /comm fallback
-# 2012-10-17, v0.8 jw, printing position if perc_p is 100%
-# 2012-11-04, v0.9 jw, added filename support. Only one proc currently.
+# 2011-12-02, v0.1  jw
+# 2011-12-03, v0.2  jw, draft version of whatsup_pid() done.
+# 2011-12-04, v0.3  jw, sub second intervall, sub run_status() added.
+# 2011-12-15, v0.4  jw, eta added. --net added.
+# 2011-12-18, v0.5  jw, rw letters added to fd... reporting.
+# 2012-02-15, v0.6  jw, consulting /proc/pid/cmdline, as /stat and /comm are 15 bytes only.
+#                       handle /proc/$pid/fd/$fd -> ... (deleted)
+# 2012-02-16,       jw, whatsup_disk started, unfinished.
+# 2012-09-24, v0.7  jw, improved /proc/pid/cmdline to /comm fallback
+# 2012-10-17, v0.8  jw, printing position if perc_p is 100%
+# 2012-11-04, v0.9  jw, added filename support. Only one proc currently.
 # 2012-11-20, V0.10 jw, added vmsize printing when idle.
+# 2012-12-09, V0.11 jw, argv1 matching added. Improved perc_p is 100% code.
 #
 #
 ## FIXME: We should we have an option to include child processes too...
@@ -39,7 +40,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.10';
+my $version = '0.11';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -171,6 +172,7 @@ if ($arg =~ m/^[+\.\w_-]+$/)
 	    my $argv = join '', <IN>;
 	    $p{$p}{argv} = [ split /\0/, $argv ];
 	    $p{$p}{argv0} = $p{$p}{argv}[0] if defined $p{$p}{argv}[0];
+	    $p{$p}{argv1} = $p{$p}{argv}[1] if defined $p{$p}{argv}[1];
 	    close IN;
 	  }
         if (open IN, "<", "/proc/$p/stat")
@@ -187,19 +189,25 @@ if ($arg =~ m/^[+\.\w_-]+$/)
 	    close IN;
 	  }
 	my $seen_something = 0;
-	for my $name ($p{$p}{cmd}, $p{$p}{argv0})
+	for my $key ([$p{$p}{cmd},   'cmd', 100],
+	             [$p{$p}{argv0}, 'av0',  10],
+		     [$p{$p}{argv1}, 'av1',   1])
 	  {
+	    my $name = $key->[0];
+	    my $w = $key->[2];
 	    next unless defined $name;
-	    $p{$p}{sort}+= 1024 if $name eq $arg;
-	    $p{$p}{sort}+=  256 if lc $name eq lc $arg;
-	    $p{$p}{sort}+=  128 if $name =~ m{\b/\Q$arg\E$};
-	    $p{$p}{sort}+=   64 if $name =~ m{\b/\Q$arg\E$}i;
-	    $p{$p}{sort}+=   32 if $name =~ m{\b\Q$arg\E\b};
-	    $p{$p}{sort}+=   16 if $name =~ m{\b\Q$arg\E\b}i;
-	    $p{$p}{sort}+=    8 if $name =~ m{\b\Q$arg\E};
-	    $p{$p}{sort}+=    4 if $name =~ m{\b\Q$arg\E}i;
-	    $p{$p}{sort}+=    2 if $name =~ m{\Q$arg\E};
-	    $p{$p}{sort}+=    1 if $name =~ m{\Q$arg\E}i;
+	    $p{$p}{sort}+= 1024*$w if $name eq $arg;
+	    $p{$p}{sort}+=  256*$w if lc $name eq lc $arg;
+	    $p{$p}{sort}+=  128*$w if $name =~ m{\b/\Q$arg\E$};
+	    $p{$p}{sort}+=   64*$w if $name =~ m{\b/\Q$arg\E$}i;
+	    $p{$p}{sort}+=   32*$w if $name =~ m{\b\Q$arg\E\b};
+	    $p{$p}{sort}+=   16*$w if $name =~ m{\b\Q$arg\E\b}i;
+	    $p{$p}{sort}+=    8*$w if $name =~ m{\b\Q$arg\E};
+	    $p{$p}{sort}+=    4*$w if $name =~ m{\b\Q$arg\E}i;
+	    $p{$p}{sort}+=    2*$w if $name =~ m{\Q$arg\E};
+	    $p{$p}{sort}+=    1*$w if $name =~ m{\Q$arg\E}i;
+	    $p{$p}{found_via} = [ $key->[1], $name, $p{$p}{sort} ] 
+	      if (($p{$p}{sort}||0) > ($p{$p}{found_via}[2]||0));
 	    $seen_something++;
           }
 	push @eaccess, $p unless $seen_something;
@@ -218,11 +226,25 @@ if ($arg =~ m/^[+\.\w_-]+$/)
         warn "multiple processes matching equally good:\n";
 	for my $p (@sorted)
 	  {
-	    warn "$p ($p{$p}{cmd})\n";
+	    my $longname = "($p{$p}{cmd})";
+	    $longname .= " $p{$p}{argv0}" if defined $p{$p}{argv0} and $p{$p}{argv0} ne $p{$p}{cmd};
+	    $longname .= " " . join(" ",@{$p{$p}{argv}}[1 .. $#{$p{$p}{argv}}]) 
+	      if defined $p{$p}{argv1};
+	    warn "$p $longname\n";
 	  }
 	exit 1;
       }
-    print STDERR " pid=$pid.\n" if $verbose; # ... CONT.
+
+    if ($verbose)
+      {
+        print STDERR " pid=$pid"; 	# ... CONT.
+	if (my $f = $p{$pid}{found_via})
+	  {
+    	    print STDERR " matches $f->[0]=$f->[1]";
+    	    print STDERR " score=$f->[2]" if $verbose > 1;
+	  }
+	print STDERR ".\n";
+      }
     whatsup_pid($pid, $p{$pid}{argv0}||$p{$pid}{cmd});
     exit 0;
   }
@@ -470,15 +492,23 @@ sub whatsup_pid
 	      $fds .= 'w' if $t->{w};
 
 	      my $perc_p = '';
-	      if ($t->{perc} < 100.0)
+	      # CAUTION: $t->{perc} evaluates < 100.0 sometimes when writing.
+	      # possible cause: while blocked in write, disk size is updated early, 
+	      # but fdinfo pos is updated late.
+	      #
+	      # We use same rounding in if and in sprintf, 
+	      # to avoid printing (100%, 1.2GB) 0m:00
+	      if (int($t->{perc}+.5) < 100)
 	        {
-	          $perc_p = sprintf " (%d%%)", ($t->{perc}+.5);
+	          $perc_p = sprintf " (%d%%", ($t->{perc}+.5);
 		}
-	      else
+	      if ($t->{w})
 	        {
 		  # offset
-		  $perc_p = " (".fmt_speed($t->{pos}).")";
+		  $perc_p .= length($perc_p) ? ", " : " (";
+		  $perc_p .= fmt_speed($t->{pos});
 		}
+	      $perc_p .= ")" if length $perc_p;
 
 	      ## raw data for eta calculation:
 	      my $f = $t->{name};
