@@ -16,7 +16,7 @@
 # 2012-11-04, v0.9  jw, added filename support. Only one proc currently.
 # 2012-11-20, V0.10 jw, added vmsize printing when idle.
 # 2012-12-09, V0.11 jw, argv1 matching added. Improved perc_p is 100% code.
-#
+# 2013-01-16, V0.12 jw, printing position if perc_p is 100% for both read and write.
 #
 ## FIXME: We should we have an option to include child processes too...
 ##        So that we can see plugin-container acting on behalf of MozillaFirefox
@@ -40,7 +40,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.11';
+my $version = '0.12';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -515,8 +515,12 @@ sub whatsup_pid
 	        {
 	          $perc_p = sprintf " (%d%%", ($t->{perc}+.5);
 		}
-	      if ($t->{w})
+	      if ($t->{w} || 1)
 	        {
+		  # this was meant for writing, but it also makes sense 
+		  # when reading e.g. block devices. my /dev/mmcblk0p1
+		  # always reports size eq pos.
+		  #
 		  # offset
 		  $perc_p .= length($perc_p) ? ", " : " (";
 		  $perc_p .= fmt_speed($t->{pos});
