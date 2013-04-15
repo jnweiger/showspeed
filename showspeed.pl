@@ -405,11 +405,11 @@ sub wait_interval
       ## test if syncer is still there
       if (kill 0, $syncer_pid)
         {
-	  print "syncer $syncer_pid is still there\n";
+	  print "syncer $syncer_pid is still there\n" if $verbose > 2;
 	}
       else
         {
-	  print "syncer $syncer_pid gone.\n";
+	  print "syncer $syncer_pid gone.\n" if $verbose > 1;
 	  $syncer_pid = undef;
 	}
     }
