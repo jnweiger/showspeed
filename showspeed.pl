@@ -4,19 +4,22 @@
 # Distribute under GPL-2.0 or ask
 #
 # 2011-12-02, v0.1  jw
-# 2011-12-03, v0.2  jw, draft version of whatsup_pid() done.
+# 2011-12-03, v0.2  jw, draft version of showspeed_pid() done.
 # 2011-12-04, v0.3  jw, sub second intervall, sub run_status() added.
 # 2011-12-15, v0.4  jw, eta added. --net added.
 # 2011-12-18, v0.5  jw, rw letters added to fd... reporting.
 # 2012-02-15, v0.6  jw, consulting /proc/pid/cmdline, as /stat and /comm are 15 bytes only.
 #                       handle /proc/$pid/fd/$fd -> ... (deleted)
-# 2012-02-16,       jw, whatsup_disk started, unfinished.
+# 2012-02-16,       jw, showspeed_disk started, unfinished.
 # 2012-09-24, v0.7  jw, improved /proc/pid/cmdline to /comm fallback
 # 2012-10-17, v0.8  jw, printing position if perc_p is 100%
 # 2012-11-04, v0.9  jw, added filename support. Only one proc currently.
 # 2012-11-20, V0.10 jw, added vmsize printing when idle.
 # 2012-12-09, V0.11 jw, argv1 matching added. Improved perc_p is 100% code.
 # 2013-01-16, V0.12 jw, printing position if perc_p is 100% for both read and write.
+# 2013-04-15, V0.13 jw, Renamed whatsup to showspeed. Script name and function calls.
+#                       Added experimental --sync option.
+#                       Stack trace less vulnerable.
 #
 ## FIXME: We should we have an option to include child processes too...
 ##        So that we can see plugin-container acting on behalf of MozillaFirefox
@@ -40,7 +43,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.12';
+my $version = '0.13';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -49,6 +52,9 @@ my $out_style;
 my $opt_read = 1;
 my $opt_write = 1;
 my $opt_pid = undef;
+my $opt_sync = 0;
+
+my $syncer_pid = undef;
 
 my $help = 0;
 
@@ -67,6 +73,7 @@ GetOptions(
 	"write|w"	=> sub { $opt_read = 0; },
 	"network|net"   => sub { unshift @ARGV, "/dev/net"; },
 	"disk|disc"     => sub { unshift @ARGV, "/dev/disk"; },
+	"sync|s+"     	=> \$opt_sync,
 ) or $help++;
 
 # use samles from the last minute for eta calculation.
@@ -107,7 +114,7 @@ a network device: (name starts with /dev/)
 };
 
 pod2usage(-verbose => 1, -msg => qq{
-whatsup V$version Usage: 
+showspeed V$version Usage: 
 
 $0 [options] [.]/FILE
 $0 [options] PROC_NAME
@@ -151,15 +158,21 @@ Valid options are:
  --write
       restrict to write activity. Default: read and write
  
+ --sync
+      frequently call sync(1). This is strongly recommended, if 
+      there is write activity and the ETA time should reflect real 
+      physical data written to disk. Default: ETA guestimates delivery 
+      into the kernel's block buffer cache.
+
  --help
       output more detailled help text.
            
-Whatsup shows bandwidth statistics for one object}.$usage_text
+Showspeed shows bandwidth statistics for one object}.$usage_text
 ) if $help;
 
 if ($opt_pid || $arg =~ m{^\d+$})
   {
-    whatsup_pid($opt_pid || $arg);
+    showspeed_pid($opt_pid || $arg);
     exit 0;
   }
 
@@ -258,7 +271,7 @@ if ($arg =~ m/^[+\.\w_-]+$/)
 	  }
 	print STDERR ".\n";
       }
-    whatsup_pid($pid, $p{$pid}{argv0}||$p{$pid}{cmd});
+    showspeed_pid($pid, $p{$pid}{argv0}||$p{$pid}{cmd});
     exit 0;
   }
 
@@ -269,7 +282,7 @@ if ($arg =~ m{/dev/net})
     my ($counter, $tot_in, $tot_out) = (0,0,0);
     for (;;)
       {
-        my $new = whatsup_net();
+        my $new = showspeed_net();
 	for my $dev (keys %$new)
 	  {
 	    if ($old && $old->{$dev})
@@ -300,7 +313,8 @@ if ($arg =~ m{/dev/net})
 	      "".fmt_speed($tot_in), "".fmt_speed($tot_out);
 	    $counter = 0;
 	  }
-	select(undef, undef, undef, $int_sec);
+	wait_interval();
+
 	$old = $new;
 	
       }
@@ -312,12 +326,12 @@ if ($arg =~ m{/dev/disk})
     my $old = {};
     for (;;)
       {
-        my $new = whatsup_disk();
+        my $new = showspeed_disk();
 	for my $dev (keys %$new)
 	  {
 	  }
 
-	select(undef, undef, undef, $int_sec);
+	wait_interval();
 	$old = $new;
         die "--disk not implemented. sorry\n";
       }
@@ -358,7 +372,7 @@ if ($arg =~ m{/})
 	  }
 	exit 0;
       }
-    whatsup_pid($pids[0]);
+    showspeed_pid($pids[0]);
     exit 0;
   }
 
@@ -367,7 +381,51 @@ die "implemented: type procname, pid, filename, --net. Nothing else. Sorry.\n";
 exit 0;
 ############################################################
 
-sub whatsup_disk
+sub syncer_task
+{
+  my ($parent_pid) = @_;
+  ## do this asynchronuously as sync() may block for ages.
+  for (;;)
+    {
+      last unless kill 0, $parent_pid;	 # take care of ourselves.
+      my $tstamp = time;
+      system('sync') if $opt_sync;
+      my $now = time;
+      printf "synctime: %g\n", $now - $tstamp if $verbose > 1;
+      select(undef, undef, undef, $int_sec);
+    }
+  printf "syncer exiting\n" if $verbose > 1;
+  exit();
+}
+
+sub wait_interval
+{
+  if (defined $syncer_pid)
+    {
+      ## test if syncer is still there
+      if (kill 0, $syncer_pid)
+        {
+	  print "syncer $syncer_pid is still there\n";
+	}
+      else
+        {
+	  print "syncer $syncer_pid gone.\n";
+	  $syncer_pid = undef;
+	}
+    }
+  
+  if ($opt_sync and !defined $syncer_pid)
+    {
+      # we need a syncer and have none.
+      my $pid = $$;
+      $syncer_pid = fork();
+      syncer_task($pid) if $syncer_pid == 0;
+    }
+
+  select(undef, undef, undef, $int_sec);
+}
+
+sub showspeed_disk
 {
   my $new = {};
   open IN, "<", "/proc/diskstats" or die "cannot open /proc/diskstats: $!\n";
@@ -376,10 +434,10 @@ sub whatsup_disk
       chomp $line;
       next unless $line =~ m{^\s*\w+:\s};
     }
-  die "whatsup_disk: not impl.";
+  die "showspeed_disk: not impl.";
 }
 
-sub whatsup_net
+sub showspeed_net
 {
   my $new = {};
   open IN, "<", "/proc/self/net/dev" or die "cannot open /proc/self/net/dev: $!\n";
@@ -429,12 +487,12 @@ sub proc_pid_cmdline
   return $cmd;
 }
 
-sub whatsup_pid
+sub showspeed_pid
 {
   my ($pid, $cmd) = @_;
   $cmd = proc_pid_cmdline($pid) unless $cmd;
 
-  print STDERR "whatsup_pid($pid, '$cmd')\n" if $verbose > 1;
+  print STDERR "showspeed_pid($pid, '$cmd')\n" if $verbose > 1;
   my $hist;
   my $old;
   while (1)
@@ -563,7 +621,7 @@ sub whatsup_pid
 	      print STDERR "\n";
 	    }
 	}
-      select(undef, undef, undef, $int_sec);
+      wait_interval();
       $old = $new;
     }
 }
@@ -638,9 +696,9 @@ sub run_status
   	  $sc = $1 if $frame =~ m{\b([_\w]*signal_\w+)}; 
 	}
       ## default to innermost frame, if nothing was good above.
-      my $inner = $1 if $stack[0] =~ m{\s+(\w+)};
-      $sc = $inner if $sc eq '-';
-      $sc .= ':'. $inner if $sc =~ m{^sys_};
+      my $inner = $1 if defined $stack[0] and $stack[0] =~ m{\s+(\w+)};
+      $sc = $inner if defined $inner and $sc eq '-';
+      $sc .= ':'. $inner if defined $inner and $sc =~ m{^sys_};
       # warn Dumper \@stack;
     }
 
