@@ -1,7 +1,11 @@
 #! /usr/bin/perl -w
 #
-# 2011-2012 (C) jw@suse.de
-# Distribute under GPL-2.0 or ask
+# 2011-2014 (C) jw@suse.de
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# version 2 as published by the Free Software Foundation.
+# No warranty.
 #
 # 2011-12-02, v0.1  jw
 # 2011-12-03, v0.2  jw, draft version of showspeed_pid() done.
