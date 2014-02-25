@@ -8,7 +8,7 @@ It can attach to a running process, identified by process name or pid, if the na
 Once per second a line of statistics is printed. If possible an ETA countdown timer is also printed.
 
 E.g. 
-
+<pre>
 $ dd if=bigfile of=/tmp/otherbigfile &
 $ showspeed dd
 dd looks like a process name. pid=4417 matches av0=dd.
@@ -22,4 +22,4 @@ p/4417/fd/0r /home/jw/bigfile 139MB/s (19%, 3.7GB)  7m:37
 p/4417/fd/0r /home/jw/bigfile 116MB/s (20%, 3.9GB)  7m:18
 p/4417/fd/1w /tmp/otherbigfile  67MB/s (4.0GB)
 p/4417/fd/1w /tmp/otherbigfile 100MB/s (4.1GB)
-
+</pre>
