@@ -20,6 +20,7 @@
 # 2013-04-15, V0.13 jw, Renamed whatsup to showspeed. Script name and function calls.
 #                       Added experimental --sync option.
 #                       Stack trace less vulnerable.
+# 2014-02-25, V0.14 jw, Added --cmd / -c for directly starting a command.
 #
 ## FIXME: We should we have an option to include child processes too...
 ##        So that we can see plugin-container acting on behalf of MozillaFirefox
@@ -36,6 +37,9 @@
 ##  Field 8 -- # of milliseconds spent writing
 ##  Field 9 -- # of I/Os currently in progress
 ##  Field 10 -- # of milliseconds spent doing I/Os
+##
+## look into:
+## /sys/class/block/sda/stat
 
 use Data::Dumper;
 use Getopt::Long qw(:config no_ignore_case);
@@ -43,7 +47,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.13';
+my $version = '0.14';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -57,6 +61,7 @@ my $opt_sync = 0;
 my $syncer_pid = undef;
 
 my $help = 0;
+my @cmd = ();
 
 GetOptions(
 	"verbose|v+"   	=> \$verbose,
@@ -67,6 +72,7 @@ GetOptions(
 	"intervall|i=f"	=> \$int_sec, 
 	"top|t=i"	=> \$top_nnn,
 	"pid|p=i" 	=> \$opt_pid,
+	"cmd|c"		=> sub { @cmd = @ARGV; @ARGV = (); },
 	"pipe=s" 	=> \$pipe,
 	"out|o=s"  	=> \$out_style,
 	"read|r"	=> sub { $opt_write = 0; },
@@ -82,7 +88,7 @@ my $histlen = 60  / $int_sec;
 die "--pipe not implemented. Always stderr.\n" if defined $pipe;
 die "--out not implemented. Always plain.\n" if defined $out_style;
 my $arg = shift;
-$help++ if !$help and !$opt_pid and !length ($arg||'');
+$help++ if !$help and !$opt_pid and !length($arg||'') and !scalar(@cmd);
 my $usage_text = $help = ".\n" if $help > 0;
 $usage_text ||= q{, which can 
 be one of the following types:
@@ -118,17 +124,24 @@ showspeed V$version Usage:
 
 $0 [options] [.]/FILE
 $0 [options] PROC_NAME
+$0 [options] -c COMMANG [ARGS ...]
 $0 [options] [-p] PID
 $0 [options] /dev/[NET]
 $0 [options] --net
 $0 [options] --disk	(not impl.)
 $0 --help
 
+Showspeed shows bandwidth statistics for one object.
+
 Valid options are:
 
  --interval SSS
       update the statistics every SSS seconds. 
       Default 2.
+
+ --cmd COMMAND [ ARGS ... ]
+      Start a command to be monitored instead of attaching to a command.
+      Use this as the last option on the command line. 
 
  --top NNN 
       defines how many activities are reported simultaneously.
@@ -167,8 +180,14 @@ Valid options are:
  --help
       output more detailled help text.
            
-Showspeed shows bandwidth statistics for one object}.$usage_text
+Not all of the above is implemented.}.$usage_text
 ) if $help;
+
+if (scalar @cmd)
+  {
+    $opt_pid = run_cmd(@cmd);
+    $arg = "$opt_pid";
+  }
 
 if ($opt_pid || $arg =~ m{^\d+$})
   {
@@ -398,6 +417,20 @@ sub syncer_task
   exit();
 }
 
+sub run_cmd
+{
+  my @cmd = @_;
+  my $cmd_pid = fork();
+  if ($cmd_pid == 0)
+    {
+      # should we do nohup or do we want him to die when we hint CTRL-C?
+      exec @cmd;
+      die "could not exec $cmd[0]: $!\n";
+    }
+  printf "[$cmd_pid] +$cmd[0] ... started\n" if $verbose > 1;
+  return $cmd_pid;
+}
+
 sub wait_interval
 {
   if (defined $syncer_pid)
@@ -424,6 +457,7 @@ sub wait_interval
 
   select(undef, undef, undef, $int_sec);
 }
+
 
 sub showspeed_disk
 {
@@ -728,6 +762,7 @@ sub fdinfo
 	}
       $fd{$fd}{size} = -s $fd{$fd}{file};
       $fd{$fd}{size} = -s "/proc/$pid/fd/$fd" unless defined $fd{$fd}{size};
+      # can we somehow get the size of a deleted file?
       warn "/proc/$pid/fd/$fd -> $fd{$fd}{file} has no size\n" unless defined $fd{$fd}{size};
       if (open IN, "<", "/proc/$pid/fdinfo/$fd")
         {
