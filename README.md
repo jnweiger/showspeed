@@ -7,10 +7,11 @@ Print estimated time of arrival.
 It can attach to a running process, identified by process name or pid, if the name is ambiguous.
 A line of statistics is printed every two seconds. If possible an ETA countdown timer is also printed.
 
-It is an alternative to pv, which must be inserted into your command pipeline. Showspeed has these advantage over pv:
+The effect of showspeed is similar to inserting |pv| into a command pipeline. Showspeed has these advantage over pv:
 
- * you can call it after starting your command or pipeline
- * you can start stop monitoring as you like.
+ * No need to construct an artificial pipeline if monitoring a simple command.
+ * You can call it *after* starting your command or pipeline.
+ * You can start stop monitoring as you like.
  * It can forsee the end and print an estimated time of arrival. Sometimes. 
 
 Example: 
@@ -31,7 +32,7 @@ p/4417/fd/1w /tmp/otherbigfile 100MB/s (4.1GB)
 </pre>
 
 
-Users may wonder, why the good old command line tools don't come with their own progress indicators. Modern versions of rsync support --progress. wget automatically does it. But cp, dd, and many other programs don't. 
-I guess, developers hesitate, as it adds quite some complexitiy, that technically does not make the program faster or better. For the developer, it appears to violate the unix philosophy, of doing only one thing, but do it well. 
+Users may wonder, why the good old command line tools don't come already with their own progress indicators. Modern versions of rsync support --progress. wget automatically does it. But cp, dd, and many other programs don't. 
+A good progress indicator adds quite some complexitiy, that technically does not make the program faster or better. For the developer, it appears to violate the unix philosophy of doing only one thing, but do it well. 
 
 For the end user, the progress indicator may be part of 'doing it well'. Showspeed was written for end users -- those that still know what a command line is.
