@@ -7,7 +7,13 @@ Print estimated time of arrival.
 It can attach to a running process, identified by process name or pid, if the name is ambiguous.
 A line of statistics is printed every two seconds. If possible an ETA countdown timer is also printed.
 
-E.g. 
+It is an alternative to pv, which must be inserted into your command pipeline. Showspeed has these advantage over pv:
+
+ * you can call it after starting your command or pipeline
+ * you can start stop monitoring as you like.
+ * It can forsee the end and print an estimated time of arrival. Sometimes. 
+
+Example: 
 <pre>
 $ dd if=bigfile of=/tmp/otherbigfile &
 $ showspeed dd
