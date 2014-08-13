@@ -4,6 +4,8 @@ showspeed
 Print I/O activity of process, files, or network.
 Print estimated time of arrival.
 
+(see also https://github.com/Xfennec/cv, which serves a similar purpose for monitoring coreutils)
+
 It can attach to a running process, identified by process name or pid, if the name is ambiguous.
 A line of statistics is printed every two seconds. If possible an ETA countdown timer is also printed.
 
