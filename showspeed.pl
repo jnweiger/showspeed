@@ -25,6 +25,8 @@
 #                       Added experimental --sync option.
 #                       Stack trace less vulnerable.
 # 2014-02-25, V0.14 jw, Added --cmd / -c for directly starting a command.
+# 2014-08-15, V0.15 jw, Added find_termsize_fn(), used in showspeed_pid()
+#                       to fit the line into the terminal. Using a randomizer for overlaps.
 #
 ## FIXME: We should we have an option to include child processes too...
 ##        So that we can see plugin-container acting on behalf of MozillaFirefox
@@ -51,7 +53,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.14';
+my $version = '0.15';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -187,6 +189,9 @@ Valid options are:
 Not all of the above is implemented.}.$usage_text
 ) if $help;
 
+my $get_termsize = find_termsize_fn();
+warn Dumper "yeah!", $get_termsize->();
+
 if (scalar @cmd)
   {
     $opt_pid = run_cmd(@cmd);
@@ -305,6 +310,8 @@ if ($arg =~ m{/dev/net})
     my ($counter, $tot_in, $tot_out) = (0,0,0);
     for (;;)
       {
+        my ($term_w, $term_h) = $get_termsize->();
+
         my $new = showspeed_net();
 	for my $dev (keys %$new)
 	  {
@@ -349,6 +356,7 @@ if ($arg =~ m{/dev/disk})
     my $old = {};
     for (;;)
       {
+        my ($term_w, $term_h) = $get_termsize->();
         my $new = showspeed_disk();
 	for my $dev (keys %$new)
 	  {
@@ -535,6 +543,8 @@ sub showspeed_pid
   my $old;
   while (1)
     {
+      my ($term_w, $term_h) = $get_termsize->();
+
       my $new = fdinfo($pid);
       return unless defined $new;
 
@@ -638,10 +648,22 @@ sub showspeed_pid
 	      my $eta = ($t->{size}-$t->{pos}) * $tdiff / $sum;
 
               my $eta_p = ''; $eta_p = " ".fmt_eta($eta) if $t->{perc} < 100.0;
-	      printf STDERR "p/%d/fd/%s %s $fmt%s%s%s\n", $pid, $fds,
+	      my $line = sprintf "p/%d/fd/%s %s $fmt%s%s%s", $pid, $fds,
 	      			$t->{name}, $speed, $unit, $perc_p, $eta_p;
-	      # print STDERR "pos=$t->{pos}, sum=$sum, t=$tdiff\n";
 
+              ## make the line fit into the terminal.
+	      if (defined $term_w and length $line > $term_w)
+	        {
+		  my $half1 = ($term_w-3)/2;
+	          ## Randomize the position of the ellipsis to show overlapping context. 
+		  ## Is that confusing, or is that helpful?
+		  $half1 = int(0.5*$half1+rand($half1));
+		  my $half2 = $term_w-3-$half1;
+		  $line = substr($line, 0, $half1) . '...' . substr($line, -$half2);
+		}
+
+              print STDERR "$line\n";
+	      # print STDERR "pos=$t->{pos}, sum=$sum, t=$tdiff\n";
 	      $printed++;
 	    }
 	  if (!$printed)
@@ -1019,4 +1041,35 @@ sub lsof_pid
   die "lsof returned data without previous p line" if scalar keys %{$procs{0}};
   delete $procs{0};
   return \%procs;
+}
+
+
+sub find_termsize_fn
+{
+  if (eval "use Term::ReadKey; 1")
+    {
+      return sub
+        {
+	  my ($wchar, $hchar, $wpixels, $hpixels) = GetTerminalSize();
+	  return ($wchar, $hchar);
+	}
+    }
+
+  if (eval "use Term::Size::Any; 1")
+    {
+      return sub
+        {
+          return Term::Size::Any::chars(*STDOUT{IO});
+	}
+    }
+
+  if (eval "use Term::Size; 1")
+    {
+      return sub
+        {
+          return Term::Size::chars(*STDOUT{IO});
+	}
+    }
+
+  return sub { return (undef, undef); };
 }
