@@ -190,7 +190,6 @@ Not all of the above is implemented.}.$usage_text
 ) if $help;
 
 my $get_termsize = find_termsize_fn();
-warn Dumper "yeah!", $get_termsize->();
 
 if (scalar @cmd)
   {
