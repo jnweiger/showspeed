@@ -27,6 +27,7 @@
 # 2014-02-25, V0.14 jw, Added --cmd / -c for directly starting a command.
 # 2014-08-15, V0.15 jw, Added find_termsize_fn(), used in showspeed_pid()
 #                       to fit the line into the terminal. Using a randomizer for overlaps.
+# 2014-10-09, V0.16 jw, vmsize from run_status() is now 0 (not '-') in case of error.
 #
 ## FIXME: We should we have an option to include child processes too...
 ##        So that we can see plugin-container acting on behalf of MozillaFirefox
@@ -53,7 +54,7 @@ use Pod::Usage;
 use Time::HiRes qw(time);	# harmless if missing.
 use English;			# allow $EUID instead of $>
 
-my $version = '0.15';
+my $version = '0.16';
 my $verbose  = 1;
 my $top_nnn = 1;
 my $int_sec = '1.5';
@@ -710,7 +711,7 @@ sub fmt_speed
 sub run_status
 {
   my ($pid) = @_;
-  my ($st,$sc,$sz) = ('-','-','-');
+  my ($st,$sc,$sz) = ('-','-',0);
 
   if (open IN, "<", "/proc/$pid/status")
     {
