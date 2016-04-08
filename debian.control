@@ -1,0 +1,21 @@
+Source: showspeed
+Section: devel
+Priority: optional
+Maintainer: Juergen Weigert <jw@owncloud.com>
+Build-Depends: debhelper (>= 7), perl
+Standards-Version: 3.9.5
+
+Package: showspeed
+Architecture: any
+Multi-Arch: same
+Depends: ${misc:Depends}, perl
+Description: Print I/O activity of process, files, or network. Print estimated time of arrival.
+ It can attach to a running process, identified by process name or pid, if the
+ name is ambiguous. A line of statistics is printed every two seconds. If
+ possible an ETA countdown timer is also printed.
+ The effect of showspeed is similar to inserting |pv| into a command pipeline.
+ .
+ Authors
+ =======
+ Juergen Weigert <jw@owncoud.com>
+
