@@ -10,7 +10,6 @@ arch=('any')
 url="https://github.com/jnweiger/showspeed"
 license=('GPL-2.0')
 depends=('perl')
-optdepends=('docker')
 makedepends=('perl')
 options=('!strip')
 source=('https://github.com/jnweiger/showspeed/blob/master/showspeed.pl')

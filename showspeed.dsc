@@ -1,6 +1,6 @@
 Format: 1.0
 Source: showspeed
-Version: 0.16-20160407
+Version: 0.16-20160408
 Binary: showspeed
 Maintainer: Juergen Weigert <jw@owncloud.com>
 Architecture: any
