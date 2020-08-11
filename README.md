@@ -9,12 +9,14 @@ Print estimated time of arrival.
 It can attach to a running process, identified by process name or pid, if the name is ambiguous.
 A line of statistics is printed every two seconds. If possible an ETA countdown timer is also printed.
 
-The effect of showspeed is similar to inserting |pv| into a command pipeline. Showspeed has these advantage over pv:
-
+<details open>
+<summary>The effect of showspeed is similar to inserting |pv| into a command pipeline. Showspeed has these advantage over pv:</summay>
+  
  * No need to construct an artificial pipeline if monitoring a simple command.
  * You can call it *after* starting your command or pipeline.
  * You can start stop monitoring as you like.
  * It can forsee the end and print an estimated time of arrival. Sometimes. 
+</details>
 
 Example: 
 <pre>
