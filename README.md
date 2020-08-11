@@ -9,6 +9,27 @@ Print estimated time of arrival.
 It can attach to a running process, identified by process name or pid, if the name is ambiguous.
 A line of statistics is printed every two seconds. If possible an ETA countdown timer is also printed.
 
+## folding 
+
+<details open>
+<summary>Do we have proper markdown?</summary>
+
+* [ ] in github
+* [ ] with all features?
+* [ ] and can it do folding?
+</details>
+
+Yeah, and if you want to see
+
+<details close>
+<summary>more, then click the little triangle at the left hand side...</summary>
+
++ you made it,
++ congratulations
+</details>
+
+
+
 <details open>
 <summary>The effect of showspeed is similar to inserting |pv| into a command pipeline. Showspeed has these advantage over pv:</summay>
   
